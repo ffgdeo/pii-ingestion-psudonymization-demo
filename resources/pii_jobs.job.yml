@@ -1,0 +1,82 @@
+resources:
+  jobs:
+    # One-time setup, run as the service principal so it owns every restricted object.
+    pii_setup_job:
+      name: pii_setup_job
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: sp_application_id
+          default: ${var.sp_application_id}
+      tasks:
+        - task_key: schemas_contract
+          notebook_task:
+            notebook_path: ../src/setup/00_schemas_contract.ipynb
+        - task_key: secrets_udfs
+          depends_on:
+            - task_key: schemas_contract
+          notebook_task:
+            notebook_path: ../src/setup/01_secrets_udfs.ipynb
+        - task_key: seed_landing
+          depends_on:
+            - task_key: secrets_udfs
+          notebook_task:
+            notebook_path: ../src/setup/02_seed_landing.ipynb
+            base_parameters:
+              batch_id: "1"
+              scenario: baseline
+        - task_key: tags_abac
+          depends_on:
+            - task_key: seed_landing
+          notebook_task:
+            notebook_path: ../src/setup/03_tags_abac.ipynb
+
+    # Main flow: raw -> verify gate -> publish -> output tags -> re-identification check.
+    pii_main_job:
+      name: pii_main_job
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+      tasks:
+        - task_key: raw_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.pii_raw_pipeline.id}
+        - task_key: verify_pipeline
+          depends_on:
+            - task_key: raw_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.pii_verify_pipeline.id}
+        - task_key: publish_pipeline
+          depends_on:
+            - task_key: verify_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.pii_publish_pipeline.id}
+        - task_key: tag_outputs
+          depends_on:
+            - task_key: publish_pipeline
+          notebook_task:
+            notebook_path: ../src/notebooks/04_tag_outputs.ipynb
+        - task_key: reidentify_check
+          depends_on:
+            - task_key: tag_outputs
+          notebook_task:
+            notebook_path: ../src/notebooks/05_reidentify.ipynb
+
+    # Failure scenarios: land batch 2 (new undeclared column, bad emails, planted leak), then rerun the main flow.
+    pii_scenarios_job:
+      name: pii_scenarios_job
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+      tasks:
+        - task_key: land_batch_2
+          notebook_task:
+            notebook_path: ../src/setup/02_seed_landing.ipynb
+            base_parameters:
+              batch_id: "2"
+              scenario: drift_and_bad_data
+        - task_key: run_main
+          depends_on:
+            - task_key: land_batch_2
+          run_job_task:
+            job_id: ${resources.jobs.pii_main_job.id}

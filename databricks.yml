@@ -1,0 +1,33 @@
+# PII ingestion, ABAC secure-by-default and reversible pseudonymization demo
+# Architecture: PII Ingestion Architecture note (steps 0-6) + Reversible Pseudonymization guide
+# (Pattern A: AES-GCM field encryption with Unity Catalog secrets, Pattern B: token vault).
+
+bundle:
+  name: pii_pseudonymization_demo
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: Unity Catalog catalog that holds the pii_raw, pii_vault, pii_governance and pii_analytics schemas
+    default: serverless_stable_yit814_catalog
+  sp_application_id:
+    description: Application ID of the service principal that runs every job and pipeline and is the only identity allowed to see cleartext / re-identify
+    default: 4ab6274e-d6e5-4839-a11a-04034a5d48de
+
+# Every job and pipeline runs as the pseudonymization service principal.
+# Humans deploy the bundle, but never run code in the restricted zone.
+run_as:
+  service_principal_name: ${var.sp_application_id}
+
+permissions:
+  - level: CAN_MANAGE
+    user_name: ${workspace.current_user.userName}
+  - level: CAN_MANAGE
+    service_principal_name: ${var.sp_application_id}
+
+targets:
+  dev:
+    default: true
+    mode: development

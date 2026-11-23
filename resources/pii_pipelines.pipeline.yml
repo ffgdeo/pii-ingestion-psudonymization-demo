@@ -1,0 +1,46 @@
+# Three Lakeflow Spark Declarative Pipelines, chained by pii_main_job:
+#   raw     (steps 1-4, restricted zone): schema check, cleartext DQ + quarantine, normalization,
+#                                          encryption (Pattern A) and vault registration (Pattern B)
+#   verify  (step 5): verification gate, writes pii_governance.batch_control
+#   publish (step 6): publishes VERIFIED batches only into pii_analytics
+
+resources:
+  pipelines:
+    pii_raw_pipeline:
+      name: pii_raw_pipeline
+      catalog: ${var.catalog}
+      schema: pii_raw
+      serverless: true
+      channel: PREVIEW
+      root_path: ../src/pipelines/raw
+      libraries:
+        - glob:
+            include: ../src/pipelines/raw/transformations/**
+      configuration:
+        pii.catalog: ${var.catalog}
+
+    pii_verify_pipeline:
+      name: pii_verify_pipeline
+      catalog: ${var.catalog}
+      schema: pii_governance
+      serverless: true
+      channel: CURRENT
+      root_path: ../src/pipelines/verify
+      libraries:
+        - glob:
+            include: ../src/pipelines/verify/transformations/**
+      configuration:
+        pii.catalog: ${var.catalog}
+
+    pii_publish_pipeline:
+      name: pii_publish_pipeline
+      catalog: ${var.catalog}
+      schema: pii_analytics
+      serverless: true
+      channel: CURRENT
+      root_path: ../src/pipelines/publish
+      libraries:
+        - glob:
+            include: ../src/pipelines/publish/transformations/**
+      configuration:
+        pii.catalog: ${var.catalog}
